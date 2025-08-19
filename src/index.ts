@@ -509,6 +509,7 @@ async function startServer() {
     console.log(`🚀 OpenAI to Claude Proxy Server running on port ${port}`);
     console.log(`📝 Health check: http://localhost:${port}/health`);
     console.log(`🔗 API endpoint: http://localhost:${port}/v1/chat/completions`);
+    console.log(`📊 Log Level: ALL (console.log, console.warn, console.error)`);
     
     if (customModel) {
       console.log(`🤖 Custom Model: ${customModel}`);
@@ -529,6 +530,11 @@ async function startServer() {
         console.log(`🔑 API Key: provided via environment variable`);
       }
     }
+    
+    // 提示用户模型映射日志会在请求时显示
+    console.log(`\n💡 Model mapping information will be displayed when requests are received`);
+    console.log(`📝 Example: When you send a request, you'll see mapping details like:`);
+    console.log(`   🔄 Protocol - Request Model: xxx -> Mapped to: yyy`);
   });
 }
 
