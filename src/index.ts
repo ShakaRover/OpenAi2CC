@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express';
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 import cors from 'cors';
 import { Command } from 'commander';
 import { ProtocolConverter, OpenAIRequest } from './protocol-converter';
@@ -15,6 +15,9 @@ program
   .option('-p, --port <number>', 'server port', '29999')
   .option('--qwen-cli', 'use Qwen CLI for authentication')
   .option('--qwen-oauth-file <path>', 'path to Qwen OAuth credentials file')
+  .option('--openai-api-key <key>', 'OpenAI API key')
+  .option('--openai-base-url <url>', 'OpenAI API base URL')
+  .option('--model <model>', 'specify target model (overrides default mapping)')
   .parse(process.argv);
 
 const options = program.opts();
@@ -24,14 +27,79 @@ app.use(cors());
 app.use(express.json({ limit: '500mb' }));
 
 // OpenAI API 基础 URL（配置你的 OpenAI 端点）
-const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const rawOpenAIBaseUrl = options.openaiBaseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+
+// 规范化 OpenAI Base URL，自动处理末尾的 / 和 /v1
+function normalizeOpenAIBaseURL(url: string): string {
+  let normalized = url.trim();
+  
+  // 移除末尾的 /
+  if (normalized.endsWith('/')) {
+    normalized = normalized.slice(0, -1);
+  }
+  
+  // 如果不以 /v1 结尾，则添加
+  if (!normalized.endsWith('/v1')) {
+    normalized += '/v1';
+  }
+  
+  return normalized;
+}
+
+const OPENAI_BASE_URL = normalizeOpenAIBaseURL(rawOpenAIBaseUrl);
+const OPENAI_API_KEY = options.openaiApiKey || process.env.OPENAI_API_KEY;
+
+// 重试配置
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000; // 1秒
+const RETRYABLE_STATUS_CODES = [502, 503, 504, 429];
+
+// 延迟函数
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// 带重试的请求函数
+async function makeRequestWithRetry(
+  config: any,
+  maxRetries: number = MAX_RETRIES
+): Promise<any> {
+  let lastError: AxiosError | undefined;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await axios(config);
+      return response;
+    } catch (error) {
+      lastError = error as AxiosError;
+      
+      // 检查是否应该重试
+      const statusCode = (error as AxiosError)?.response?.status;
+      const shouldRetry = statusCode && RETRYABLE_STATUS_CODES.includes(statusCode);
+      
+      if (!shouldRetry || attempt === maxRetries) {
+        throw error;
+      }
+      
+      // 记录重试信息
+      console.warn(`Request failed (attempt ${attempt}/${maxRetries}): ${statusCode} - Retrying in ${RETRY_DELAY}ms...`);
+      
+      // 等待后重试
+      await delay(RETRY_DELAY * attempt); // 指数退避
+    }
+  }
+  
+  throw lastError || new Error('Unknown error occurred');
+}
 
 // Qwen CLI 模式
 const useQwenCLI = options.qwenCli || process.env.QWEN_CLI === 'true';
 
 // Qwen OAuth 文件路径
 const qwenOAuthFile = options.qwenOauthFile || process.env.QWEN_OAUTH_FILE;
+
+// 自定义模型
+const customModel = options.model;
 
 // 健康检查
 app.get('/health', (_, res) => {
@@ -49,7 +117,7 @@ app.post('/v1/messages', async (req: Request, res: Response) => {
     const claudeRequest = req.body;
     
     // 转换为 OpenAI 请求格式
-    const openAIRequest = ProtocolConverter.claudeRequestToOpenAI(claudeRequest, useQwenCLI);
+    const openAIRequest = ProtocolConverter.claudeRequestToOpenAI(claudeRequest, useQwenCLI, customModel);
     
     // 准备请求头
     let headers: Record<string, string> = {
@@ -94,14 +162,23 @@ app.post('/v1/messages', async (req: Request, res: Response) => {
       });
     }
     
-    const response = await axios.post(
-      `${baseURL}/chat/completions`,
-      openAIRequest,
-      { 
-        headers,
-        responseType: claudeRequest.stream ? 'stream' : 'json'
-      }
-    );
+    // 使用带重试的请求（流式响应不重试）
+    const response = claudeRequest.stream 
+      ? await axios.post(
+          `${baseURL}/chat/completions`,
+          openAIRequest,
+          { 
+            headers,
+            responseType: 'stream'
+          }
+        )
+      : await makeRequestWithRetry({
+          method: 'post',
+          url: `${baseURL}/chat/completions`,
+          data: openAIRequest,
+          headers,
+          responseType: 'json'
+        });
 
     // 转换响应格式
     if (claudeRequest.stream) {
@@ -212,7 +289,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
     const openAIRequest: OpenAIRequest = req.body;
     
     // 转换为 Claude 请求格式
-    const claudeRequest = ProtocolConverter.openAIRequestToClaude(openAIRequest, useQwenCLI);
+    const claudeRequest = ProtocolConverter.openAIRequestToClaude(openAIRequest, useQwenCLI, customModel);
     
     // 准备请求头
     let headers: Record<string, string> = {
@@ -259,24 +336,34 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
       });
     }
     
-    const response = await axios.post(
-      `${baseURL}/chat/completions`,
-      {
-        // 这里需要根据你的 OpenAI 接口进行调整
-        model: claudeRequest.model,
-        messages: claudeRequest.messages.map(msg => ({
-          role: msg.role,
-          content: msg.content
-        })),
-        max_tokens: claudeRequest.max_tokens,
-        temperature: claudeRequest.temperature,
-        stream: claudeRequest.stream
-      },
-      { 
-        headers,
-        responseType: openAIRequest.stream ? 'stream' : 'json'
-      }
-    );
+    // 使用带重试的请求（流式响应不重试）
+    const requestData = {
+      model: claudeRequest.model,
+      messages: claudeRequest.messages.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      })),
+      max_tokens: claudeRequest.max_tokens,
+      temperature: claudeRequest.temperature,
+      stream: claudeRequest.stream
+    };
+    
+    const response = openAIRequest.stream
+      ? await axios.post(
+          `${baseURL}/chat/completions`,
+          requestData,
+          { 
+            headers,
+            responseType: 'stream'
+          }
+        )
+      : await makeRequestWithRetry({
+          method: 'post',
+          url: `${baseURL}/chat/completions`,
+          data: requestData,
+          headers,
+          responseType: 'json'
+        });
 
     // 转换响应格式
     if (openAIRequest.stream) {
@@ -294,7 +381,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
               res.write(`data: [DONE]\n\n`);
             } else {
               try {
-                const parsed = JSON.parse(data);
+                JSON.parse(data); // 验证 JSON 格式
                 // 直接转发 OpenAI 格式的流式响应
                 res.write(`data: ${data}\n\n`);
               } catch (e) {
@@ -334,34 +421,51 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
 
 // 模型列表端点
 app.get('/v1/models', (_, res) => {
-  // 根据 Qwen CLI 模式返回不同的模型列表
-  const models = useQwenCLI ? [
-    {
-      id: 'qwen3-coder-plus',
-      object: 'model',
-      created: Math.floor(Date.now() / 1000),
-      owned_by: 'qwen'
-    }
-  ] : [
-    {
-      id: 'claude-3-opus-20240229',
-      object: 'model',
-      created: Math.floor(Date.now() / 1000),
-      owned_by: 'anthropic'
-    },
-    {
-      id: 'claude-3-sonnet-20240229',
-      object: 'model',
-      created: Math.floor(Date.now() / 1000),
-      owned_by: 'anthropic'
-    },
-    {
-      id: 'claude-3-haiku-20240307',
-      object: 'model',
-      created: Math.floor(Date.now() / 1000),
-      owned_by: 'anthropic'
-    }
-  ];
+  let models;
+  
+  if (customModel) {
+    // 如果指定了自定义模型，只返回该模型
+    models = [
+      {
+        id: customModel,
+        object: 'model',
+        created: Math.floor(Date.now() / 1000),
+        owned_by: 'custom'
+      }
+    ];
+  } else if (useQwenCLI) {
+    // Qwen CLI 模式
+    models = [
+      {
+        id: 'qwen3-coder-plus',
+        object: 'model',
+        created: Math.floor(Date.now() / 1000),
+        owned_by: 'qwen'
+      }
+    ];
+  } else {
+    // 默认 OpenAI 模式
+    models = [
+      {
+        id: 'claude-3-opus-20240229',
+        object: 'model',
+        created: Math.floor(Date.now() / 1000),
+        owned_by: 'anthropic'
+      },
+      {
+        id: 'claude-3-sonnet-20240229',
+        object: 'model',
+        created: Math.floor(Date.now() / 1000),
+        owned_by: 'anthropic'
+      },
+      {
+        id: 'claude-3-haiku-20240307',
+        object: 'model',
+        created: Math.floor(Date.now() / 1000),
+        owned_by: 'anthropic'
+      }
+    ];
+  }
   
   res.json({
     object: 'list',
@@ -391,10 +495,25 @@ async function startServer() {
     console.log(`🚀 OpenAI to Claude Proxy Server running on port ${port}`);
     console.log(`📝 Health check: http://localhost:${port}/health`);
     console.log(`🔗 API endpoint: http://localhost:${port}/v1/chat/completions`);
+    
+    if (customModel) {
+      console.log(`🤖 Custom Model: ${customModel}`);
+    }
+    
     if (useQwenCLI) {
       console.log(`🔐 Authentication: Qwen CLI OAuth`);
     } else {
       console.log(`🔐 Authentication: OpenAI API Key`);
+      console.log(`🌐 OpenAI Base URL: ${OPENAI_BASE_URL}`);
+      if (rawOpenAIBaseUrl !== OPENAI_BASE_URL) {
+        console.log(`📝 Original URL: ${rawOpenAIBaseUrl}`);
+        console.log(`✅ Normalized to: ${OPENAI_BASE_URL}`);
+      }
+      if (options.openaiApiKey) {
+        console.log(`🔑 API Key: provided via command line`);
+      } else if (process.env.OPENAI_API_KEY) {
+        console.log(`🔑 API Key: provided via environment variable`);
+      }
     }
   });
 }

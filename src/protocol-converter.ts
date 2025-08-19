@@ -55,7 +55,7 @@ export interface ClaudeResponse {
 // 协议转换器
 export class ProtocolConverter {
   // Claude 请求转换为 OpenAI 请求
-  static claudeRequestToOpenAI(claudeReq: any, useQwenCLI: boolean = false): any {
+  static claudeRequestToOpenAI(claudeReq: any, useQwenCLI: boolean = false, customModel?: string): any {
     const openAIMessages: any[] = [];
     
     for (const message of claudeReq.messages) {
@@ -67,8 +67,21 @@ export class ProtocolConverter {
       }
     }
 
+    // 确定目标模型
+    let targetModel;
+    if (customModel) {
+      // 使用自定义模型
+      targetModel = customModel;
+    } else if (useQwenCLI) {
+      // Qwen CLI 模式
+      targetModel = 'qwen3-coder-plus';
+    } else {
+      // OpenAI 模式，使用映射
+      targetModel = claudeReq.model;
+    }
+
     return {
-      model: useQwenCLI ? 'qwen3-coder-plus' : claudeReq.model,
+      model: targetModel,
       messages: openAIMessages,
       max_tokens: claudeReq.max_tokens || 4096,
       temperature: claudeReq.temperature || 0.7,
@@ -77,7 +90,7 @@ export class ProtocolConverter {
   }
 
   // OpenAI 请求转换为 Claude 请求
-  static openAIRequestToClaude(openAIReq: OpenAIRequest, useQwenCLI: boolean = false): ClaudeRequest {
+  static openAIRequestToClaude(openAIReq: OpenAIRequest, useQwenCLI: boolean = false, customModel?: string): ClaudeRequest {
     const claudeMessages: ClaudeMessage[] = [];
     
     for (const message of openAIReq.messages) {
@@ -96,7 +109,7 @@ export class ProtocolConverter {
     }
 
     return {
-      model: this.mapModel(openAIReq.model, useQwenCLI),
+      model: this.mapModel(openAIReq.model, useQwenCLI, customModel),
       max_tokens: openAIReq.max_tokens || 4096,
       temperature: openAIReq.temperature || 0.7,
       messages: claudeMessages,
@@ -123,7 +136,12 @@ export class ProtocolConverter {
   }
 
   // 模型名称映射
-  static mapModel(openAIModel: string, useQwenCLI: boolean = false): string {
+  static mapModel(openAIModel: string, useQwenCLI: boolean = false, customModel?: string): string {
+    if (customModel) {
+      // 使用自定义模型
+      return customModel;
+    }
+    
     if (useQwenCLI) {
       // Qwen CLI 模式下只支持 qwen3-coder-plus
       return 'qwen3-coder-plus';
@@ -138,14 +156,11 @@ export class ProtocolConverter {
     return modelMap[openAIModel] || 'claude-3-sonnet-20240229';
   }
 
-  // 错误响应格式化
+  // 错误响应格式化（使用统一的错误处理器）
   static formatErrorResponse(error: any, statusCode: number = 500): any {
-    return {
-      error: {
-        message: error.message || 'Internal server error',
-        type: 'api_error',
-        code: statusCode
-      }
-    };
+    // 导入错误处理器
+    const { ErrorHandler } = require('./error-handler');
+    const errorResponse = ErrorHandler.createErrorResponse(error, statusCode);
+    return { error: errorResponse };
   }
 }

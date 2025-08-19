@@ -12,6 +12,8 @@
 - ⚡ 高性能：基于 Node.js 和 TypeScript 构建
 - 🔑 Qwen CLI 支持：支持使用通义千问 CLI 的 OAuth 认证
 - 🔄 自动 token 刷新：定时刷新访问 token 并更新配置文件
+- 🔄 自动重试：对临时性错误（502, 503, 504, 429）自动重试
+- 📝 详细错误信息：提供更友好的错误描述和建议
 
 ## 技术栈
 
@@ -38,6 +40,8 @@ cp .env.example .env
 
 #### 模式一：OpenAI API 认证（默认）
 
+**方法一：通过环境变量配置**
+
 编辑 `.env` 文件，填入你的 OpenAI API 密钥：
 
 ```env
@@ -53,6 +57,27 @@ npm run dev
 # 生产模式
 npm run build
 npm start
+```
+
+**方法二：通过命令行参数**
+
+```bash
+# 开发模式 - 通过命令行传递 API Key
+npm run dev -- --openai-api-key your_api_key_here
+
+# 开发模式 - 指定自定义 API 端点（自动处理 /v1）
+npm run dev -- --openai-api-key your_api_key_here --openai-base-url https://your-api-endpoint.com
+# 或
+npm run dev -- --openai-api-key your_api_key_here --openai-base-url https://your-api-endpoint.com/v1/
+# 或
+npm run dev -- --openai-api-key your_api_key_here --openai-base-url https://your-api-endpoint.com/v1
+
+# 开发模式 - 指定自定义模型（覆盖默认映射）
+npm run dev -- --openai-api-key your_api_key_here --model gpt-4
+
+# 生产模式
+npm run build
+npm start -- --openai-api-key your_api_key_here --model gpt-4
 ```
 
 #### 模式二：Qwen CLI 认证
@@ -169,8 +194,20 @@ npm run dev -- --qwen-cli
 # 指定自定义 OAuth 文件路径
 npm run dev -- --qwen-cli --qwen-oauth-file /path/to/oauth_creds.json
 
+# OpenAI 模式：指定 API Key
+npm run dev -- --openai-api-key your_api_key_here
+
+# OpenAI 模式：指定 Base URL
+npm run dev -- --openai-base-url https://your-api-endpoint.com/v1
+
+# OpenAI 模式：指定自定义模型
+npm run dev -- --openai-api-key your_api_key_here --model gpt-4
+
+# Qwen CLI 模式：指定自定义模型（覆盖默认的 qwen3-coder-plus）
+npm run dev -- --qwen-cli --model qwen-turbo
+
 # 组合使用
-npm run dev -- -p 8080 --qwen-cli --qwen-oauth-file /path/to/oauth_creds.json
+npm run dev -- -p 8080 --openai-api-key your_api_key_here --openai-base-url https://your-api-endpoint.com/v1 --model gpt-4
 ```
 
 ### Qwen CLI 配置
@@ -206,6 +243,40 @@ Claude Code → 代理服务 → 通义千问 API
 - 自定义消息转换逻辑
 - 添加中间件功能
 - 实现请求/响应日志
+
+## OpenAI Base URL 自动处理
+
+代理服务会自动规范化 `openai-base-url`，确保正确的 API 端点格式：
+
+- 自动移除末尾的 `/`
+- 自动添加缺失的 `/v1` 后缀
+
+**示例：**
+- `https://api.example.com` → `https://api.example.com/v1`
+- `https://api.example.com/` → `https://api.example.com/v1`
+- `https://api.example.com/v1/` → `https://api.example.com/v1`
+- `https://api.example.com/v1` → `https://api.example.com/v1`
+
+## 错误处理和重试机制
+
+### 自动重试
+
+代理服务会对以下临时性错误自动重试（最多 3 次）：
+- **502 Bad Gateway** - 上游服务返回无效响应
+- **503 Service Unavailable** - 上游服务暂时不可用
+- **504 Gateway Timeout** - 上游服务响应超时
+- **429 Too Many Requests** - 请求频率过高
+
+重试采用指数退避策略，避免加重上游服务负担。
+
+### 错误信息说明
+
+- **503 Service Unavailable**: 上游服务可能暂时宕机或过载，请稍后重试
+- **502 Bad Gateway**: 上游服务返回了无效响应
+- **429 Rate Limit Exceeded**: 请求频率过高，请降低请求频率
+- **401 Authentication Failed**: API 密钥错误或已过期
+- **403 Access Denied**: 没有访问该资源的权限
+- **404 Not Found**: 请求的端点或模型不存在
 
 ## 为什么选择 Node.js？
 

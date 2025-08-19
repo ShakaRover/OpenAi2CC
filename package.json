@@ -10,7 +10,9 @@
     "start:qwen": "ts-node src/index.ts --qwen-cli",
     "build:qwen": "npm run build && node dist/index.js --qwen-cli",
     "dev:custom": "ts-node src/index.ts --qwen-cli --qwen-oauth-file",
-    "start:custom": "node dist/index.js --qwen-cli --qwen-oauth-file"
+    "start:custom": "node dist/index.js --qwen-cli --qwen-oauth-file",
+    "dev:openai": "ts-node src/index.ts --openai-api-key",
+    "start:openai": "node dist/index.js --openai-api-key"
   },
   "dependencies": {
     "express": "^4.18.2",
