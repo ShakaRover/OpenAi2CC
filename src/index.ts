@@ -4,6 +4,7 @@ import cors from 'cors';
 import { Command } from 'commander';
 import { ProtocolConverter, OpenAIRequest } from './protocol-converter';
 import { qwenCLIManager } from './qwen-cli-manager';
+import { ModelMappingManager } from './model-mapping';
 import { v4 as uuidv4 } from 'uuid';
 
 const app = express();
@@ -18,6 +19,8 @@ program
   .option('--openai-api-key <key>', 'OpenAI API key')
   .option('--openai-base-url <url>', 'OpenAI API base URL')
   .option('--model <model>', 'specify target model (overrides default mapping)')
+  .option('--model-mapping <path>', 'path to model mapping JSON configuration file')
+  .option('--model-mapping-env <var>', 'environment variable name for model mapping JSON')
   .parse(process.argv);
 
 const options = program.opts();
@@ -101,14 +104,40 @@ const qwenOAuthFile = options.qwenOauthFile || process.env.QWEN_OAUTH_FILE;
 // 自定义模型
 const customModel = options.model;
 
+// 初始化模型映射管理器
+const modelMappingManager = new ModelMappingManager();
+
+// 从命令行参数加载模型映射配置
+const modelMappingFile = options.modelMapping || process.env.MODEL_MAPPING_FILE;
+if (modelMappingFile) {
+  modelMappingManager.loadFromFile(modelMappingFile);
+}
+
+// 从环境变量加载模型映射配置
+const modelMappingEnv = options.modelMappingEnv || process.env.MODEL_MAPPING_ENV || 'MODEL_MAPPINGS';
+if (process.env[modelMappingEnv]) {
+  modelMappingManager.loadFromEnv(modelMappingEnv);
+}
+
+// 设置模型映射管理器到协议转换器
+ProtocolConverter.setModelMappingManager(modelMappingManager);
+
 // 健康检查
 app.get('/health', (_, res) => {
-  res.json({ 
+  const healthInfo = {
     status: 'ok', 
     message: 'OpenAI to Claude Proxy is running',
     qwen_cli: useQwenCLI ? 'enabled' : 'disabled',
-    qwen_configured: useQwenCLI ? qwenCLIManager.isConfigured() : false
-  });
+    qwen_configured: useQwenCLI ? qwenCLIManager.isConfigured() : false,
+    model_mapping: {
+      enabled: modelMappingManager.hasMappings(),
+      count: modelMappingManager.getMappings().length,
+      config_file: modelMappingFile || null,
+      env_var: modelMappingManager.hasMappings() && process.env[modelMappingEnv] ? modelMappingEnv : null,
+      default_model: modelMappingManager.getDefaultModel()
+    }
+  };
+  res.json(healthInfo);
 });
 
 // Claude 协议的 messages 端点
@@ -120,11 +149,41 @@ app.post('/v1/messages', async (req: Request, res: Response) => {
     const openAIRequest = ProtocolConverter.claudeRequestToOpenAI(claudeRequest, useQwenCLI, customModel);
     
     // 打印模型映射信息
-    console.log(`🔄 Claude Protocol - Request Model: ${claudeRequest.model} -> Mapped to: ${openAIRequest.model}`);
-    if (customModel) {
-      console.log(`📝 Using custom model override: ${customModel}`);
+    const originalModel = claudeRequest.model;
+    const mappedModel = openAIRequest.model;
+    console.log(`🔄 Claude Protocol - Request Model: ${originalModel} -> Mapped to: ${mappedModel}`);
+    
+    // 显示映射类型信息（基于新的优先级系统）
+    if (useQwenCLI) {
+      console.log(`🔧 Qwen CLI mode: using qwen3-coder-plus`);
+    } else if (modelMappingManager.hasMappings()) {
+      if (originalModel !== mappedModel) {
+        // 检查是否是模式匹配
+        const mapping = modelMappingManager.getMappings().find(m => {
+          switch (m.type) {
+            case 'contains': return originalModel.includes(m.pattern);
+            case 'exact': return originalModel === m.pattern;
+            case 'prefix': return originalModel.startsWith(m.pattern);
+            case 'suffix': return originalModel.endsWith(m.pattern);
+            default: return false;
+          }
+        });
+        
+        if (mapping) {
+          console.log(`📊 Pattern mapping applied: "${mapping.pattern}" (${mapping.type}) -> "${mapping.target}"`);
+        } else if (mappedModel === modelMappingManager.getDefaultModel()) {
+          console.log(`🎯 Using default model from config: ${modelMappingManager.getDefaultModel()}`);
+        } else if (customModel && mappedModel === customModel) {
+          console.log(`📝 Using default model from --model parameter: ${customModel}`);
+        }
+      } else {
+        console.log(`📝 No mapping applied: using original model`);
+      }
+    } else if (customModel) {
+      console.log(`📝 Using model from --model parameter: ${customModel}`);
+    } else {
+      console.log(`📝 Direct mapping: using original model`);
     }
-    console.log(`🔧 Mode: ${useQwenCLI ? 'Qwen CLI' : 'OpenAI API'}`);
     
     // 准备请求头
     let headers: Record<string, string> = {
@@ -299,11 +358,41 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
     const claudeRequest = ProtocolConverter.openAIRequestToClaude(openAIRequest, useQwenCLI, customModel);
     
     // 打印模型映射信息
-    console.log(`🔄 OpenAI Protocol - Request Model: ${openAIRequest.model} -> Mapped to: ${claudeRequest.model}`);
-    if (customModel) {
-      console.log(`📝 Using custom model override: ${customModel}`);
+    const originalModel = openAIRequest.model;
+    const mappedModel = claudeRequest.model;
+    console.log(`🔄 OpenAI Protocol - Request Model: ${originalModel} -> Mapped to: ${mappedModel}`);
+    
+    // 显示映射类型信息（基于新的优先级系统）
+    if (useQwenCLI) {
+      console.log(`🔧 Qwen CLI mode: using qwen3-coder-plus`);
+    } else if (modelMappingManager.hasMappings()) {
+      if (originalModel !== mappedModel) {
+        // 检查是否是模式匹配
+        const mapping = modelMappingManager.getMappings().find(m => {
+          switch (m.type) {
+            case 'contains': return originalModel.includes(m.pattern);
+            case 'exact': return originalModel === m.pattern;
+            case 'prefix': return originalModel.startsWith(m.pattern);
+            case 'suffix': return originalModel.endsWith(m.pattern);
+            default: return false;
+          }
+        });
+        
+        if (mapping) {
+          console.log(`📊 Pattern mapping applied: "${mapping.pattern}" (${mapping.type}) -> "${mapping.target}"`);
+        } else if (mappedModel === modelMappingManager.getDefaultModel()) {
+          console.log(`🎯 Using default model from config: ${modelMappingManager.getDefaultModel()}`);
+        } else if (customModel && mappedModel === customModel) {
+          console.log(`📝 Using default model from --model parameter: ${customModel}`);
+        }
+      } else {
+        console.log(`📝 No mapping applied: using original model`);
+      }
+    } else if (customModel) {
+      console.log(`📝 Using model from --model parameter: ${customModel}`);
+    } else {
+      console.log(`📝 Default mapping applied (built-in model map)`);
     }
-    console.log(`🔧 Mode: ${useQwenCLI ? 'Qwen CLI' : 'OpenAI API'}`);
     
     // 准备请求头
     let headers: Record<string, string> = {
@@ -515,6 +604,33 @@ async function startServer() {
       console.log(`🤖 Custom Model: ${customModel}`);
     }
     
+    // 显示模型映射配置信息
+    if (modelMappingManager.hasMappings()) {
+      console.log(`🗺️  Model Mapping: Enabled (${modelMappingManager.getMappings().length} rules)`);
+      if (modelMappingFile) {
+        console.log(`📁 Mapping Config: ${modelMappingFile}`);
+      }
+      if (process.env[modelMappingEnv]) {
+        console.log(`🔧 Mapping Env: ${modelMappingEnv}`);
+      }
+      
+      // 在调试模式下显示所有映射规则
+      if (process.env.DEBUG_MODEL_MAPPING === 'true') {
+        console.log(`\n📋 Active Mappings:`);
+        modelMappingManager.getMappings().forEach((mapping, index) => {
+          console.log(`   ${index + 1}. "${mapping.pattern}" (${mapping.type}) -> "${mapping.target}"`);
+        });
+        
+        if (modelMappingManager.getDefaultModel()) {
+          console.log(`\n🎯 Default Model: ${modelMappingManager.getDefaultModel()}`);
+        }
+      } else if (modelMappingManager.getDefaultModel()) {
+        console.log(`🎯 Default Model: ${modelMappingManager.getDefaultModel()}`);
+      }
+    } else {
+      console.log(`🗺️  Model Mapping: Disabled (using default mappings)`);
+    }
+    
     if (useQwenCLI) {
       console.log(`🔐 Authentication: Qwen CLI OAuth`);
     } else {
@@ -530,11 +646,6 @@ async function startServer() {
         console.log(`🔑 API Key: provided via environment variable`);
       }
     }
-    
-    // 提示用户模型映射日志会在请求时显示
-    console.log(`\n💡 Model mapping information will be displayed when requests are received`);
-    console.log(`📝 Example: When you send a request, you'll see mapping details like:`);
-    console.log(`   🔄 Protocol - Request Model: xxx -> Mapped to: yyy`);
   });
 }
 

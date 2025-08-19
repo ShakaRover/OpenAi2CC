@@ -1,3 +1,5 @@
+import { ModelMappingManager } from './model-mapping';
+
 // OpenAI 到 Claude API 协议映射
 export interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant';
@@ -54,6 +56,23 @@ export interface ClaudeResponse {
 
 // 协议转换器
 export class ProtocolConverter {
+  // 全局模型映射管理器实例
+  private static modelMappingManager: ModelMappingManager | null = null;
+
+  /**
+   * 设置模型映射管理器
+   */
+  static setModelMappingManager(manager: ModelMappingManager): void {
+    this.modelMappingManager = manager;
+  }
+
+  /**
+   * 获取模型映射管理器
+   */
+  static getModelMappingManager(): ModelMappingManager | null {
+    return this.modelMappingManager;
+  }
+
   // Claude 请求转换为 OpenAI 请求
   static claudeRequestToOpenAI(claudeReq: any, useQwenCLI: boolean = false, customModel?: string): any {
     const openAIMessages: any[] = [];
@@ -67,22 +86,40 @@ export class ProtocolConverter {
       }
     }
 
-    // 确定目标模型
+    // 确定目标模型 - 按照新的优先级系统
     let targetModel;
     let mappingInfo = '';
     
-    if (customModel) {
-      // 使用自定义模型
-      targetModel = customModel;
-      mappingInfo = `(custom override)`;
-    } else if (useQwenCLI) {
+    if (useQwenCLI) {
       // Qwen CLI 模式
       targetModel = 'qwen3-coder-plus';
-      mappingInfo = `(Qwen CLI mode)`;
+      mappingInfo = '(Qwen CLI mode)';
     } else {
-      // OpenAI 模式，直接使用原始模型
-      targetModel = claudeReq.model;
-      mappingInfo = `(direct mapping)`;
+      // 使用模型映射管理器进行映射（优先级 1）
+      if (this.modelMappingManager && this.modelMappingManager.hasMappings()) {
+        const originalModel = claudeReq.model;
+        targetModel = this.modelMappingManager.mapModel(originalModel, customModel);
+        
+        if (targetModel !== originalModel) {
+          // 来自 pattern mapping
+          mappingInfo = '(pattern mapping)';
+        } else if (customModel) {
+          // 来自 defaultModel（customModel 参数）
+          targetModel = customModel;
+          mappingInfo = '(default model from --model)';
+        } else {
+          // 没有映射，使用原始模型
+          mappingInfo = '(no mapping)';
+        }
+      } else if (customModel) {
+        // 没有 model-mapping 配置，使用 customModel 作为默认模型
+        targetModel = customModel;
+        mappingInfo = '(default model from --model)';
+      } else {
+        // OpenAI 模式，直接使用原始模型
+        targetModel = claudeReq.model;
+        mappingInfo = '(direct mapping)';
+      }
     }
 
     return {
@@ -142,16 +179,25 @@ export class ProtocolConverter {
 
   // 模型名称映射
   static mapModel(openAIModel: string, useQwenCLI: boolean = false, customModel?: string): string {
-    if (customModel) {
-      // 使用自定义模型
-      return customModel;
-    }
-    
     if (useQwenCLI) {
       // Qwen CLI 模式下只支持 qwen3-coder-plus
       return 'qwen3-coder-plus';
     }
     
+    // 使用模型映射管理器进行映射（优先级 1）
+    if (this.modelMappingManager && this.modelMappingManager.hasMappings()) {
+      const targetModel = this.modelMappingManager.mapModel(openAIModel, customModel);
+      if (targetModel !== openAIModel) {
+        return targetModel;
+      }
+    }
+    
+    // 如果没有 model-mapping 配置，使用 customModel 作为默认模型（优先级 2）
+    if (customModel) {
+      return customModel;
+    }
+    
+    // 如果都没有，使用默认映射表（优先级 3）
     const modelMap: Record<string, string> = {
       'gpt-4': 'claude-3-opus-20240229',
       'gpt-4-turbo': 'claude-3-haiku-20240307',

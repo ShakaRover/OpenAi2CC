@@ -1,0 +1,40 @@
+{
+  "mappings": [
+    {
+      "pattern": "claude-3-5",
+      "target": "GLM-4",
+      "type": "contains"
+    },
+    {
+      "pattern": "gpt-4",
+      "target": "claude-3-opus-20240229",
+      "type": "contains"
+    },
+    {
+      "pattern": "gpt-3.5",
+      "target": "claude-3-sonnet-20240229",
+      "type": "contains"
+    },
+    {
+      "pattern": "claude-3-haiku",
+      "target": "gpt-4o-mini",
+      "type": "exact"
+    },
+    {
+      "pattern": "qwen-",
+      "target": "qwen3-coder-plus",
+      "type": "prefix"
+    },
+    {
+      "pattern": "-turbo",
+      "target": "claude-3-haiku-20240307",
+      "type": "suffix"
+    },
+    {
+      "pattern": "unknown-model",
+      "target": "claude-3-sonnet-20240229",
+      "type": "exact"
+    }
+  ],
+  "defaultModel": "claude-3-sonnet-20240229"
+}

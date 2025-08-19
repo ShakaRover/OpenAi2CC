@@ -1,0 +1,14 @@
+{
+  "mappings": [
+    {
+      "pattern": "haiku",
+      "target": "gemini-2.5-flash",
+      "type": "contains"
+    },
+    {
+      "pattern": "sonnet",
+      "target": "gemini-2.5-pro",
+      "type": "contains"
+    }
+  ]
+}

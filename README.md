@@ -15,6 +15,7 @@
 - 🔄 自动重试：对临时性错误（502, 503, 504, 429）自动重试
 - 📝 详细错误信息：提供更友好的错误描述和建议
 - 📝 模型映射日志：实时显示请求模型和映射后的模型信息
+- 🗺️ **高级模型映射**：支持 JSON 配置文件和模式匹配（包含、前缀、后缀、精确匹配）
 
 ## 技术栈
 
@@ -200,13 +201,159 @@ OpenAI API / 通义千问 API
 
 **注意**：使用 `--model` 参数可以覆盖所有映射，强制使用指定的模型。
 
+## 高级模型映射
+
+除了内置的模型映射外，你还支持通过 JSON 配置文件自定义模型映射规则，支持多种匹配模式和默认模型：
+
+### 使用方法
+
+#### 方法一：通过配置文件
+
+1. 创建模型映射配置文件（参考 `model-mapping.example.json`）：
+
+```json
+{
+  "mappings": [
+    {
+      "pattern": "claude-3-5",
+      "target": "GLM-4",
+      "type": "contains"
+    },
+    {
+      "pattern": "gpt-4",
+      "target": "claude-3-opus-20240229",
+      "type": "contains"
+    },
+    {
+      "pattern": "qwen-",
+      "target": "qwen3-coder-plus",
+      "type": "prefix"
+    },
+    {
+      "pattern": "-turbo",
+      "target": "claude-3-haiku-20240307",
+      "type": "suffix"
+    }
+  ],
+  "defaultModel": "claude-3-sonnet-20240229"
+}
+```
+
+2. 启动服务时指定配置文件：
+
+```bash
+npm run dev -- --model-mapping ./model-mapping.json
+```
+
+#### 方法二：通过环境变量
+
+```bash
+# 设置环境变量
+export MODEL_MAPPINGS='{"mappings":[{"pattern":"claude-3-5","target":"GLM-4","type":"contains"}]}'
+
+# 启动服务
+npm run dev
+```
+
+### 匹配模式说明
+
+| 模式 | 说明 | 示例 |
+|------|------|------|
+| `contains` | 包含匹配（默认） | `"claude-3-5"` 匹配 `claude-3-5-sonnet`, `claude-3-5-haiku` |
+| `exact` | 精确匹配 | `"gpt-4"` 只匹配 `gpt-4` |
+| `prefix` | 前缀匹配 | `"qwen-"` 匹配 `qwen-7b`, `qwen-14b` |
+| `suffix` | 后缀匹配 | `"-turbo"` 匹配 `gpt-4-turbo`, `gpt-3.5-turbo` |
+
+### 默认模型
+
+配置文件支持可选的 `defaultModel` 字段，当所有映射规则都不匹配时，会使用这个默认模型：
+
+```json
+{
+  "mappings": [...],
+  "defaultModel": "claude-3-sonnet-20240229"
+}
+```
+
+**工作原理：**
+1. 系统按顺序检查所有映射规则
+2. 如果找到匹配，使用对应的 `target` 模型
+3. 如果没有找到任何匹配，且配置了 `defaultModel`，则使用默认模型
+4. 如果既没有匹配也没有默认模型，则返回原始模型名称
+
+**使用场景：**
+- 为未知模型提供一个合理的默认值
+- 确保所有请求都能映射到有效的模型
+- 简化配置，避免为每个可能的模型都创建映射规则
+
+### 优先级
+
+模型映射按照以下优先级顺序处理：
+
+1. **model-mapping 模式匹配**（最高优先级）
+   - JSON 配置文件中的模式匹配规则（按配置顺序）
+   - 例如：`{"pattern": "claude-3-5", "target": "GLM-4", "type": "contains"}`
+
+2. **model-mapping 默认模型**
+   - JSON 配置文件中的 `defaultModel` 字段
+   - 当所有模式匹配都不命中时使用
+
+3. **`--model` 参数**
+   - 命令行指定的模型参数
+   - 相当于 model-mapping 中的外部默认模型
+   - 仅在 model-mapping 配置中没有匹配且没有 defaultModel 时使用
+
+4. **内置模型映射**（最低优先级）
+   - 系统内置的模型映射表
+   - 作为最后的备选方案
+
+**示例：**
+```bash
+npm run dev -- --model-mapping ./config.json --model fallback-model
+```
+
+- 请求 `claude-3-5-sonnet` → 使用模式匹配映射到 `GLM-4`
+- 请求 `unknown-model` → 使用配置文件中的 `defaultModel`
+- 请求 `another-unknown`（配置文件无 defaultModel）→ 使用 `--model` 的 `fallback-model`
+
+### 调试模式
+
+设置环境变量 `DEBUG_MODEL_MAPPING=true` 可以在启动时显示所有激活的映射规则：
+
+```bash
+DEBUG_MODEL_MAPPING=true npm run dev -- --model-mapping ./model-mapping.json
+```
+
+### 环境变量支持
+
+- `MODEL_MAPPING_FILE` - 模型映射配置文件路径
+- `MODEL_MAPPINGS` - JSON 格式的模型映射配置
+- `MODEL_MAPPING_ENV` - 存储模型映射配置的环境变量名（默认：`MODEL_MAPPINGS`）
+- `DEBUG_MODEL_MAPPING` - 启用调试模式（`true`/`false`）
+
+**通过环境变量配置默认模型：**
+
+```bash
+# 设置包含默认模型的映射配置
+export MODEL_MAPPINGS='{"mappings":[{"pattern":"claude-3-5","target":"GLM-4","type":"contains"}],"defaultModel":"claude-3-sonnet-20240229"}'
+
+# 启动服务
+npm run dev
+```
+
 ## 项目结构
 
 ```
 src/
 ├── index.ts              # 主服务器文件
 ├── protocol-converter.ts # 协议转换逻辑
+├── model-mapping.ts      # 高级模型映射管理器
 └── qwen-cli-manager.ts   # Qwen CLI 认证管理器
+
+model-mapping.example.json # 模型映射配置示例
+test-mapping-logs.js      # 模型映射测试脚本
+demo-model-mapping.sh     # 模型映射功能演示脚本
+demo-default-model.sh     # 默认模型功能演示脚本
 ```
 
 ### 测试
@@ -244,6 +391,15 @@ npm run dev -- --qwen-cli --model qwen-turbo
 
 # 组合使用
 npm run dev -- -p 8080 --openai-api-key your_api_key_here --openai-base-url https://your-api-endpoint.com/v1 --model gpt-4
+
+# 使用模型映射配置文件
+npm run dev -- --model-mapping ./model-mapping.json
+
+# 指定模型映射环境变量名
+npm run dev -- --model-mapping-env CUSTOM_MODEL_MAPPINGS
+
+# 启用调试模式查看映射规则
+DEBUG_MODEL_MAPPING=true npm run dev -- --model-mapping ./model-mapping.json
 ```
 
 ### Qwen CLI 配置
