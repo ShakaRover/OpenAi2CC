@@ -1,6 +1,15 @@
-# Claude to OpenAI Protocol Proxy
+# OpenAi2CC：打破 Claude Code 的模型限制，让 AI 开发更自由
 
-这是一个将 Anthropic Claude API 协议转换为 OpenAI API 协议的代理服务。让你可以使用 Claude Code 连接到 OpenAI API 或通义千问 API。
+这是一个将 Anthropic Claude API 协议转换为 OpenAI API 协议的代理服务。让你可以使用 Claude Code 连接到 OpenAI API、通义千问 API 或其他兼容 OpenAI 协议的 AI 服务。
+
+## 项目背景
+
+作为开发者，你是否也曾遇到过这样的困扰：很喜欢用 Claude Code 写代码，但它的模型选择太有限了？OpenAi2CC 专门解决这个痛点，让你能够：
+
+- 🔄 自由选择喜欢的 AI 模型
+- 💰 根据需求平衡成本和性能
+- 🏢 为团队提供统一的 AI 服务入口
+- 🔧 灵活配置模型映射规则
 
 ## 功能特性
 
@@ -124,9 +133,15 @@ QWEN_OAUTH_FILE=/path/to/your/oauth_creds.json
 
 ```bash
 # Claude Code 配置
-export ANTHROPIC_API_URL=http://localhost:3000/v1
+export ANTHROPIC_API_URL=http://localhost:29999
 export ANTHROPIC_API_KEY=dummy-key
 ```
+
+**配置说明：**
+- `ANTHROPIC_API_URL` 必须指向 OpenAi2CC 服务的地址和端口（默认：29999）
+- `ANTHROPIC_API_KEY` 可以是任意值，因为实际的认证由代理服务处理
+- 如果修改了服务端口，需要相应调整 URL 中的端口号
+- 配置后，Claude Code 的所有请求都会通过 OpenAi2CC 转发到你配置的 AI 服务
 
 ### API 端点
 
@@ -476,6 +491,48 @@ Claude Code → 代理服务 → 通义千问 API
 2. **JSON 处理友好** - JavaScript 原生支持 JSON，减少序列化/反序列化开销
 3. **异步 I/O 高效** - 单线程事件循环适合高并发代理场景
 4. **开发效率高** - 快速开发和部署
+
+## 实际应用场景
+
+### 场景一：模型成本优化
+
+通过模型映射，在不同场景使用最合适的模型：
+
+```json
+{
+  "mappings": [
+    {
+      "pattern": "claude-3-haiku",
+      "target": "gpt-3.5-turbo",
+      "type": "exact"
+    },
+    {
+      "pattern": "claude-3-opus",
+      "target": "gpt-4",
+      "type": "exact"
+    }
+  ]
+}
+```
+
+### 场景二：多模型测试
+
+在 AI 应用开发中，快速切换不同模型进行对比：
+
+```bash
+# 测试不同的后端模型
+npm run dev -- --model gpt-4
+npm run dev -- --model qwen-turbo
+npm run dev -- --model claude-3-sonnet
+```
+
+### 场景三：企业级统一管理
+
+对于企业用户，OpenAi2CC 可以作为 AI 服务的统一入口：
+
+- 🏢 为不同团队提供统一的 API 接口
+- 🔒 集中管理模型访问权限
+- 📊 提供完整的请求日志和审计追踪
 
 ## 许可证
 
