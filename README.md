@@ -57,9 +57,11 @@ npm start
 
 #### 模式二：Qwen CLI 认证
 
-确保你已经安装并配置了通义千问 CLI，并且 OAuth 凭据已保存在 `~/.qwen/oauth_creds.json`。
+确保你已经安装并配置了通义千问 CLI，并且 OAuth 凭据已保存在默认位置 `~/.qwen/oauth_creds.json` 或自定义路径。
 
 启动服务：
+
+**使用默认 OAuth 文件路径：**
 ```bash
 # 开发模式
 npm run start:qwen
@@ -71,9 +73,19 @@ npm run dev -- --qwen-cli
 npm run build:qwen
 ```
 
-或者通过环境变量：
+**使用自定义 OAuth 文件路径：**
+```bash
+# 通过命令行参数指定
+npm run dev -- --qwen-cli --qwen-oauth-file /path/to/your/oauth_creds.json
+
+# 通过环境变量指定
+QWEN_CLI=true QWEN_OAUTH_FILE=/path/to/your/oauth_creds.json npm run dev
+```
+
+或者通过环境变量（.env 文件）：
 ```env
 QWEN_CLI=true
+QWEN_OAUTH_FILE=/path/to/your/oauth_creds.json
 # OPENAI_API_KEY 不需要设置
 ```
 
@@ -154,16 +166,20 @@ npm run dev -- -p 8080
 # 启用 Qwen CLI 模式
 npm run dev -- --qwen-cli
 
+# 指定自定义 OAuth 文件路径
+npm run dev -- --qwen-cli --qwen-oauth-file /path/to/oauth_creds.json
+
 # 组合使用
-npm run dev -- -p 8080 --qwen-cli
+npm run dev -- -p 8080 --qwen-cli --qwen-oauth-file /path/to/oauth_creds.json
 ```
 
 ### Qwen CLI 配置
 
 1. 首次使用前，请确保已经通过通义千问 CLI 完成了 OAuth 认证
-2. 认证信息会保存在 `~/.qwen/oauth_creds.json`
-3. 代理服务会自动读取该文件，并定时刷新 token
-4. Token 刷新后会自动更新配置文件
+2. 认证信息默认保存在 `~/.qwen/oauth_creds.json`
+3. 你可以通过 `--qwen-oauth-file` 参数或 `QWEN_OAUTH_FILE` 环境变量指定自定义路径
+4. 代理服务会自动读取 OAuth 文件，并定时刷新 token
+5. Token 刷新后会自动更新配置文件
 
 ## 工作原理
 

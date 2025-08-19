@@ -13,7 +13,7 @@ export interface OAuthCreds {
 
 export class QwenCLIManager {
   private oauthCreds: OAuthCreds | null = null;
-  private readonly OAUTH_FILE: string;
+  private OAUTH_FILE: string;
   private readonly CLIENT_ID = 'f0304373b74a44d2b584a3fb70ca9e56';
   private refreshTimer: NodeJS.Timeout | null = null;
 
@@ -21,7 +21,10 @@ export class QwenCLIManager {
     this.OAUTH_FILE = path.join(os.homedir(), '.qwen', 'oauth_creds.json');
   }
 
-  async initialize(): Promise<void> {
+  async initialize(oauthFile?: string): Promise<void> {
+    if (oauthFile) {
+      this.OAUTH_FILE = oauthFile;
+    }
     await this.loadOAuthCreds();
     this.startTokenRefreshTimer();
   }
@@ -74,9 +77,10 @@ export class QwenCLIManager {
       const data = response.data;
       this.oauthCreds = {
         access_token: data.access_token,
-        refresh_token: this.oauthCreds.refresh_token, // 保留原有的 refresh_token
+        refresh_token: data.refresh_token, // 使用新的 refresh_token
         expiry_date: Date.now() + data.expires_in * 1000 - 1000 * 60, // 提前1分钟过期
         token_type: data.token_type,
+        resource_url: this.oauthCreds.resource_url, // 保留原有的 resource_url
       };
 
       await this.saveOAuthCreds(this.oauthCreds);

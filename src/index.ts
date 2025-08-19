@@ -14,6 +14,7 @@ const program = new Command();
 program
   .option('-p, --port <number>', 'server port', '29999')
   .option('--qwen-cli', 'use Qwen CLI for authentication')
+  .option('--qwen-oauth-file <path>', 'path to Qwen OAuth credentials file')
   .parse(process.argv);
 
 const options = program.opts();
@@ -28,6 +29,9 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 // Qwen CLI 模式
 const useQwenCLI = options.qwenCli || process.env.QWEN_CLI === 'true';
+
+// Qwen OAuth 文件路径
+const qwenOAuthFile = options.qwenOauthFile || process.env.QWEN_OAUTH_FILE;
 
 // 健康检查
 app.get('/health', (_, res) => {
@@ -372,8 +376,11 @@ async function startServer() {
   // 如果使用 Qwen CLI，初始化管理器
   if (useQwenCLI) {
     try {
-      await qwenCLIManager.initialize();
+      await qwenCLIManager.initialize(qwenOAuthFile);
       console.log('🔑 Qwen CLI mode enabled');
+      if (qwenOAuthFile) {
+        console.log(`📁 Using OAuth file: ${qwenOAuthFile}`);
+      }
     } catch (error) {
       console.error('❌ Failed to initialize Qwen CLI:', error);
       process.exit(1);

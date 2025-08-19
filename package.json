@@ -8,7 +8,9 @@
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "start:qwen": "ts-node src/index.ts --qwen-cli",
-    "build:qwen": "npm run build && node dist/index.js --qwen-cli"
+    "build:qwen": "npm run build && node dist/index.js --qwen-cli",
+    "dev:custom": "ts-node src/index.ts --qwen-cli --qwen-oauth-file",
+    "start:custom": "node dist/index.js --qwen-cli --qwen-oauth-file"
   },
   "dependencies": {
     "express": "^4.18.2",
