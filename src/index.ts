@@ -119,6 +119,13 @@ app.post('/v1/messages', async (req: Request, res: Response) => {
     // 转换为 OpenAI 请求格式
     const openAIRequest = ProtocolConverter.claudeRequestToOpenAI(claudeRequest, useQwenCLI, customModel);
     
+    // 打印模型映射信息
+    console.log(`🔄 Claude Protocol - Request Model: ${claudeRequest.model} -> Mapped to: ${openAIRequest.model}`);
+    if (customModel) {
+      console.log(`📝 Using custom model override: ${customModel}`);
+    }
+    console.log(`🔧 Mode: ${useQwenCLI ? 'Qwen CLI' : 'OpenAI API'}`);
+    
     // 准备请求头
     let headers: Record<string, string> = {
       'Content-Type': 'application/json'
@@ -290,6 +297,13 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
     
     // 转换为 Claude 请求格式
     const claudeRequest = ProtocolConverter.openAIRequestToClaude(openAIRequest, useQwenCLI, customModel);
+    
+    // 打印模型映射信息
+    console.log(`🔄 OpenAI Protocol - Request Model: ${openAIRequest.model} -> Mapped to: ${claudeRequest.model}`);
+    if (customModel) {
+      console.log(`📝 Using custom model override: ${customModel}`);
+    }
+    console.log(`🔧 Mode: ${useQwenCLI ? 'Qwen CLI' : 'OpenAI API'}`);
     
     // 准备请求头
     let headers: Record<string, string> = {

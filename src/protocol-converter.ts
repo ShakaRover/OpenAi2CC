@@ -69,15 +69,20 @@ export class ProtocolConverter {
 
     // 确定目标模型
     let targetModel;
+    let mappingInfo = '';
+    
     if (customModel) {
       // 使用自定义模型
       targetModel = customModel;
+      mappingInfo = `(custom override)`;
     } else if (useQwenCLI) {
       // Qwen CLI 模式
       targetModel = 'qwen3-coder-plus';
+      mappingInfo = `(Qwen CLI mode)`;
     } else {
-      // OpenAI 模式，使用映射
+      // OpenAI 模式，直接使用原始模型
       targetModel = claudeReq.model;
+      mappingInfo = `(direct mapping)`;
     }
 
     return {
@@ -150,10 +155,19 @@ export class ProtocolConverter {
     const modelMap: Record<string, string> = {
       'gpt-4': 'claude-3-opus-20240229',
       'gpt-4-turbo': 'claude-3-haiku-20240307',
-      'gpt-3.5-turbo': 'claude-3-sonnet-20240229'
+      'gpt-3.5-turbo': 'claude-3-sonnet-20240229',
+      'gpt-4o': 'claude-3-5-sonnet-20241022',
+      'gpt-4o-mini': 'claude-3-haiku-20240307'
     };
     
-    return modelMap[openAIModel] || 'claude-3-sonnet-20240229';
+    const mappedModel = modelMap[openAIModel];
+    if (mappedModel) {
+      return mappedModel;
+    }
+    
+    // 如果没有找到映射，使用默认模型并记录警告
+    console.warn(`⚠️  No mapping found for model '${openAIModel}', using default: claude-3-sonnet-20240229`);
+    return 'claude-3-sonnet-20240229';
   }
 
   // 错误响应格式化（使用统一的错误处理器）
