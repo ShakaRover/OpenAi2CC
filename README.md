@@ -25,6 +25,7 @@
 - 📝 详细错误信息：提供更友好的错误描述和建议
 - 📝 模型映射日志：实时显示请求模型和映射后的模型信息
 - 🗺️ **高级模型映射**：支持 JSON 配置文件和模式匹配（包含、前缀、后缀、精确匹配）
+- 🛠️ **工具调用支持**：完整支持 Function Calling，在 Claude 和 OpenAI 协议间正确转换工具调用格式
 
 ## 技术栈
 
@@ -145,8 +146,8 @@ export ANTHROPIC_API_KEY=dummy-key
 
 ### API 端点
 
-- `POST /v1/messages` - Claude 协议的消息端点
-- `POST /v1/chat/completions` - 聊天补全（OpenAI 兼容）
+- `POST /v1/messages` - Claude 协议的消息端点（支持工具调用）
+- `POST /v1/chat/completions` - 聊天补全（OpenAI 兼容，支持工具调用）
 - `GET /v1/models` - 模型列表
 - `GET /health` - 健康检查
 
@@ -175,11 +176,17 @@ OpenAI API / 通义千问 API
 ```
 
 代理服务负责：
-1. 接收 Claude 格式的请求
-2. 转换为 OpenAI 格式
+1. 接收 Claude 格式的请求（包含工具定义和工具调用）
+2. 转换为 OpenAI 格式（tools、tool_calls、tool 角色消息）
 3. 转发到 OpenAI API 或通义千问 API
-4. 接收响应并转换回 Claude 格式
+4. 接收响应并转换回 Claude 格式（tool_use、tool_result 内容块）
 5. 返回给 Claude Code
+
+**工具调用处理**：
+- **工具定义**：自动在 Claude `tools` 和 OpenAI `tools` 格式间转换
+- **工具调用**：将 Claude `tool_use` 内容块转换为 OpenAI `tool_calls` 数组
+- **工具结果**：将 OpenAI `tool` 角色消息转换为 Claude `tool_result` 内容块
+- **混合内容**：支持同时包含文本和工具调用的复杂消息格式
 
 ## 模型映射日志
 
@@ -361,12 +368,13 @@ npm run dev
 ```
 src/
 ├── index.ts              # 主服务器文件
-├── protocol-converter.ts # 协议转换逻辑
+├── protocol-converter.ts # 协议转换逻辑（支持工具调用）
 ├── model-mapping.ts      # 高级模型映射管理器
 └── qwen-cli-manager.ts   # Qwen CLI 认证管理器
 
 model-mapping.example.json # 模型映射配置示例
 test-mapping-logs.js      # 模型映射测试脚本
+test-tool-calls.js        # 工具调用功能测试脚本
 demo-model-mapping.sh     # 模型映射功能演示脚本
 demo-default-model.sh     # 默认模型功能演示脚本
 ```
@@ -378,6 +386,16 @@ demo-default-model.sh     # 默认模型功能演示脚本
 ```bash
 chmod +x test.sh
 ./test.sh
+```
+
+测试工具调用功能：
+
+```bash
+# 构建项目
+npm run build
+
+# 运行工具调用测试
+node test-tool-calls.js
 ```
 
 ### 命令行参数
